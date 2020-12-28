@@ -13,7 +13,8 @@ RUN --mount=type=cache,target=/tmp/pip-cache \
 ADD https://download.pytorch.org/models/vgg16-397923af.pth models/vgg16.pth
 RUN chmod 644 models/vgg16.pth
 
-RUN pip install awslambdaric
+RUN --mount-type=cache,target=/tmp/pip-cache \
+    pip install --cache-dir=/tmp/pip-cache awslambdaric
 
 ADD https://github.com/aws/aws-lambda-runtime-interface-emulator/releases/latest/download/aws-lambda-rie /usr/bin/aws-lambda-rie
 RUN chmod 755 /usr/bin/aws-lambda-rie
