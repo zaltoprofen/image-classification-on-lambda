@@ -54,12 +54,18 @@ export class ImageClassificationOnLambdaStack extends cdk.Stack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       lifecycleRules: [{expiration: cdk.Duration.days(30)}]
     });
+    const deadLetterQueue = new sqs.Queue(this, 'DeadLetterQueue');
     const taskQueue = new sqs.Queue(this, 'TaskQueue', {
-      visibilityTimeout: cdk.Duration.minutes(5),
+      visibilityTimeout: cdk.Duration.minutes(3),
+      deadLetterQueue: {
+        queue: deadLetterQueue,
+        maxReceiveCount: 2,
+      }
     });
     const table = new dynamodb.Table(this, 'TaskTable', {
       partitionKey: {name: 'taskId', type: dynamodb.AttributeType.STRING},
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     const createTask = new lambda.Function(this, 'CreateTask', {
@@ -111,6 +117,21 @@ export class ImageClassificationOnLambdaStack extends cdk.Stack {
     });
     table.grantReadData(showTask);
     tasks.addResource('{taskId}').addMethod('GET', new LambdaIntegration(showTask));
+
+    const onError = new lambda.Function(this, 'OnError', {
+      code: tasksCode,
+      handler: 'handlers.on_error',
+      runtime: lambda.Runtime.PYTHON_3_8,
+      logRetention: logs.RetentionDays.ONE_DAY,
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        'TABLE_NAME': table.tableName,
+      },
+      events: [
+        new es.SqsEventSource(deadLetterQueue),
+      ],
+    });
+    table.grantReadWriteData(onError);
 
     new cdk.CfnOutput(this, 'ClassificationApiEndpoint', {
       value: stage.urlForPath()

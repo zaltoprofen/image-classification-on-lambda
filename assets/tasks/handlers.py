@@ -90,3 +90,16 @@ def show(event, context):
         },
         'body': json.dumps(item, default=json_default),
     }
+
+
+def on_error(event, context):
+    table = get_table()
+    for record in event['Records']:
+        message = json.loads(record['body'])
+        task_id = message['taskId']
+        table.update_item(
+            Key={'taskId': task_id},
+            AttributeUpdates={
+                'status': {'Value': 'ERROR'},
+            }
+        )
