@@ -86,34 +86,52 @@ def handler(event, context):
     }
 
 
-def classification_task(event, context):
+def report_error(task_id, message=None):
     table = get_table()
+    update = {
+        'status': {'Value': 'ERROR'},
+    }
+    if message:
+        update['message'] = {'Value': message}
+    table.update_item(
+        Key={'taskId': task_id},
+        AttributeUpdates=update,
+    )
+
+
+def update_task(task_id, status, result=None):
+    table = get_table()
+    update = {
+        'status': {'Value': status},
+    }
+    if result:
+        update['result'] = {'Value': result}
+    table.update_item(
+        Key={'taskId': task_id},
+        AttributeUpdates=update,
+    )
+
+
+def classification_task(event, context):
     s3 = get_s3_client()
     for record in event['Records']:
         message = json.loads(record['body'])
         task_id = message['taskId']
-        table.update_item(
-            Key={'taskId': task_id},
-            AttributeUpdates={
-                'status': {'Value': 'DOING'},
-            }
-        )
+        update_task(task_id, 'DOING')
         s3_uri = message['s3Uri']
         o = urlparse(s3_uri)
         bucket_name, key = o.netloc, o.path.lstrip('/')
         with io.BytesIO() as buf:
             s3.download_fileobj(bucket_name, key, buf)
             buf.seek(0)
-            img = Image.open(buf).convert('RGB')
+            try:
+                img = Image.open(buf).convert('RGB')
+            except:
+                report_error(task_id, 'invalid file format')
+                return
         result = classify(img)
         result = [{
             'label': r['label'],
             'confidence': decimal.Decimal(r['confidence']),
         } for r in result]
-        table.update_item(
-            Key={'taskId': task_id},
-            AttributeUpdates={
-                'status': {'Value': 'DONE'},
-                'result': {'Value': result},
-            }
-        )
+        update_task(task_id, 'DONE', result)
