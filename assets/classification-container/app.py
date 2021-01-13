@@ -1,7 +1,6 @@
 import base64
 import binascii
 import decimal
-import getpass
 import io
 import json
 import os
@@ -66,13 +65,14 @@ def classify(img, topk=5):
 
 def handler(event, context):
     try:
-        img_fp = io.BytesIO(base64.b64decode(event['body']))
+        data = base64.b64decode(event['body'])
     except binascii.Error:
         return {
             'statusCode': 400,
             'body': json.dumps({'message': 'cannot decode body'}),
         }
     try:
+        img_fp = io.BytesIO(data)
         img = Image.open(img_fp).convert('RGB')
     except:
         return {

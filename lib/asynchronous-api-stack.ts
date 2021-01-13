@@ -8,51 +8,19 @@ import * as sqs from '@aws-cdk/aws-sqs';
 import * as dynamodb from '@aws-cdk/aws-dynamodb';
 import { LambdaIntegration } from '@aws-cdk/aws-apigateway';
 
-interface ImageClassificationOnLambdaStackProps extends cdk.StackProps {
-  functionName?: string;
-  provisionedConcurrency?: number;
-  xRayTracingEnabled?: boolean;
-}
-
-export class ImageClassificationOnLambdaStack extends cdk.Stack {
-  constructor(scope: cdk.Construct, id: string, props?: ImageClassificationOnLambdaStackProps) {
+export class AsynchronousApiStack extends cdk.Stack {
+  constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const func = new lambda.DockerImageFunction(this, 'ClassificationFunction', {
-      functionName: props?.functionName,
-      code: lambda.DockerImageCode.fromImageAsset('assets/classification-container'),
-      logRetention: logs.RetentionDays.ONE_DAY,
-      memorySize: 2048,
-      timeout: cdk.Duration.seconds(30),
-      tracing: lambda.Tracing.DISABLED,
-      currentVersionOptions: {
-        removalPolicy: cdk.RemovalPolicy.RETAIN,
-      }
-    });
-
-    const live = func.currentVersion.addAlias('live', {
-      provisionedConcurrentExecutions: props?.provisionedConcurrency,
-    });
-
-    const api = new apigw.RestApi(this, 'ClassificationApi', {
+    const api = new apigw.RestApi(this, 'AsynchronousApi', {
       binaryMediaTypes: ['*/*'],
-      deploy: false,
-    });
-    api.root.addMethod('POST', new apigw.LambdaIntegration(live));
-    const deployment = new apigw.Deployment(this, 'Deployment', {
-      api: api,
-    });
-    const stage = new apigw.Stage(this, 'Stage', {
-      deployment,
-      stageName: 'prod',
-      tracingEnabled: props?.xRayTracingEnabled,
     });
 
     const tasks = api.root.addResource('tasks');
     const tasksCode = lambda.Code.fromAsset('assets/tasks');
-    const bucket = new s3.Bucket(this, 'ImageBucket', {
+    const imageBucket = new s3.Bucket(this, 'ImageBucket', {
       encryption: s3.BucketEncryption.S3_MANAGED,
-      lifecycleRules: [{expiration: cdk.Duration.days(30)}]
+      lifecycleRules: [{expiration: cdk.Duration.days(1)}],
     });
     const deadLetterQueue = new sqs.Queue(this, 'DeadLetterQueue');
     const taskQueue = new sqs.Queue(this, 'TaskQueue', {
@@ -76,12 +44,12 @@ export class ImageClassificationOnLambdaStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       logRetention: logs.RetentionDays.ONE_DAY,
       environment: {
-        'BUCKET_NAME': bucket.bucketName,
+        'BUCKET_NAME': imageBucket.bucketName,
         'QUEUE_URL': taskQueue.queueUrl,
         'TABLE_NAME': table.tableName,
       },
     });
-    bucket.grantWrite(createTask);
+    imageBucket.grantWrite(createTask);
     taskQueue.grantSendMessages(createTask);
     table.grantReadWriteData(createTask);
     tasks.addMethod('POST', new apigw.LambdaIntegration(createTask));
@@ -104,7 +72,7 @@ export class ImageClassificationOnLambdaStack extends cdk.Stack {
       ],
     });
     table.grantReadWriteData(taskWorker);
-    bucket.grantRead(taskWorker);
+    imageBucket.grantRead(taskWorker);
 
     const showTask = new lambda.Function(this, 'ShowTask', {
       code: tasksCode,
@@ -133,8 +101,8 @@ export class ImageClassificationOnLambdaStack extends cdk.Stack {
     });
     table.grantReadWriteData(onError);
 
-    new cdk.CfnOutput(this, 'ClassificationApiEndpoint', {
-      value: stage.urlForPath()
+    new cdk.CfnOutput(this, 'ImageBucketName', {
+      value: imageBucket.bucketName,
     });
   }
 }
