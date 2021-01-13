@@ -6,7 +6,6 @@ import * as logs from '@aws-cdk/aws-logs';
 import * as s3 from '@aws-cdk/aws-s3';
 import * as sqs from '@aws-cdk/aws-sqs';
 import * as dynamodb from '@aws-cdk/aws-dynamodb';
-import { LambdaIntegration } from '@aws-cdk/aws-apigateway';
 
 export class AsynchronousApiStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
@@ -84,7 +83,7 @@ export class AsynchronousApiStack extends cdk.Stack {
       },
     });
     table.grantReadData(showTask);
-    tasks.addResource('{taskId}').addMethod('GET', new LambdaIntegration(showTask));
+    tasks.addResource('{taskId}').addMethod('GET', new apigw.LambdaIntegration(showTask));
 
     const onError = new lambda.Function(this, 'OnError', {
       code: tasksCode,
